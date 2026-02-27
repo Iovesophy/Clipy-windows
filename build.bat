@@ -10,12 +10,12 @@ pip install pyinstaller
 pyinstaller ^
     --noconsole ^
     --onefile ^
-    --name Clipy ^
+    --name ClipyForWindows ^
     --icon resources/icon.ico ^
     --hidden-import win32timezone ^
     --collect-all keyboard ^
     main.py
 
 echo.
-echo Build complete! Check dist\Clipy.exe
+echo Build complete! Check dist\ClipyForWindows.exe
 pause

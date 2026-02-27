@@ -36,7 +36,7 @@ python main.py
 ```bat
 build.bat
 ```
-This generates `dist\Clipy.exe`.
+This generates `dist\ClipyForWindows.exe`.
 
 ## Usage
 
