@@ -70,9 +70,8 @@ Right-click tray icon → **Settings** to configure:
 
 ## License
 
-MIT License — Reimplemented for Windows in the spirit of the original [Clipy](https://github.com/Clipy/Clipy).
+MIT License
 
-## Fork Source
+## Inspired By
 
-- Original macOS app: https://github.com/Clipy/Clipy
-- This fork: https://github.com/Iovesophy/Clipy
+[Clipy](https://github.com/Clipy/Clipy) — a clipboard manager for macOS.
