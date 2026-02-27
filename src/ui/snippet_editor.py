@@ -3,7 +3,7 @@ Snippet manager dialog.
 Lets users create/edit/delete snippets and folders.
 """
 import tkinter as tk
-from tkinter import messagebox, simpledialog
+from tkinter import messagebox, simpledialog, filedialog
 
 
 class SnippetEditor(tk.Toplevel):
@@ -82,6 +82,17 @@ class SnippetEditor(tk.Toplevel):
             tk.Button(fb, text=text, command=cmd, bg=C['btn'], fg=C['fg'],
                       relief=tk.FLAT, padx=6, pady=3,
                       font=('Segoe UI', 9), cursor='hand2').pack(side=tk.LEFT, padx=2)
+
+        # Import/Export buttons
+        tk.Frame(left, bg=C['border'], height=1).pack(fill=tk.X, pady=2)
+        ieb = tk.Frame(left, bg=C['panel'])
+        ieb.pack(fill=tk.X, pady=4, padx=4)
+        tk.Button(ieb, text='Import', command=self._import_snippets, bg=C['btn'], fg=C['fg'],
+                  relief=tk.FLAT, padx=6, pady=3,
+                  font=('Segoe UI', 9), cursor='hand2').pack(side=tk.LEFT, padx=2)
+        tk.Button(ieb, text='Export', command=self._export_snippets, bg=C['btn'], fg=C['fg'],
+                  relief=tk.FLAT, padx=6, pady=3,
+                  font=('Segoe UI', 9), cursor='hand2').pack(side=tk.LEFT, padx=2)
 
         # ── Right: snippet list + editor ──────────────────────────────────
         right = tk.Frame(main, bg=C['bg'])
@@ -287,6 +298,89 @@ class SnippetEditor(tk.Toplevel):
             self.storage.delete_snippet(self._editing_snip)
             self._load_snippets(self._current_folder)
             self._set_new_mode()
+
+    # ── Import / Export ───────────────────────────────────────────────────
+
+    def _export_snippets(self):
+        """Export all snippets to XML plist file (Clipy macOS compatible)."""
+        try:
+            file_path = filedialog.asksaveasfilename(
+                parent=self,
+                title='Export Snippets',
+                defaultextension='.xml',
+                filetypes=[
+                    ('XML Plist Files', '*.xml'),
+                    ('Plist Files', '*.plist'),
+                    ('All Files', '*.*')
+                ],
+                initialfile='clipy_snippets.xml'
+            )
+            
+            if not file_path:
+                return
+            
+            xml_content = self.storage.export_snippets_xml()
+            
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(xml_content)
+            
+            messagebox.showinfo(
+                'Export Successful',
+                f'Snippets exported successfully to:\n{file_path}',
+                parent=self
+            )
+        except Exception as e:
+            messagebox.showerror(
+                'Export Failed',
+                f'Failed to export snippets:\n{str(e)}',
+                parent=self
+            )
+
+    def _import_snippets(self):
+        """Import snippets from XML plist file (Clipy macOS compatible)."""
+        try:
+            file_path = filedialog.askopenfilename(
+                parent=self,
+                title='Import Snippets',
+                filetypes=[
+                    ('XML Plist Files', '*.xml'),
+                    ('Plist Files', '*.plist'),
+                    ('All Files', '*.*')
+                ]
+            )
+            
+            if not file_path:
+                return
+            
+            # Ask if user wants to merge or replace
+            merge = messagebox.askyesno(
+                'Import Mode',
+                'Do you want to merge with existing snippets?\n\n'
+                'Yes: Keep existing snippets and add imported ones\n'
+                'No: Replace all existing snippets with imported ones',
+                parent=self
+            )
+            
+            with open(file_path, 'r', encoding='utf-8') as f:
+                xml_content = f.read()
+            
+            self.storage.import_snippets_xml(xml_content, merge=merge)
+            
+            # Refresh the UI
+            self._refresh()
+            self._set_new_mode()
+            
+            messagebox.showinfo(
+                'Import Successful',
+                f'Snippets imported successfully from:\n{file_path}',
+                parent=self
+            )
+        except Exception as e:
+            messagebox.showerror(
+                'Import Failed',
+                f'Failed to import snippets:\n{str(e)}',
+                parent=self
+            )
 
     def _save_snippet(self):
         title = self._title_var.get().strip()

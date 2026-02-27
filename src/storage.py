@@ -4,7 +4,11 @@ Uses SQLite to persist clipboard history, snippets, and settings.
 """
 import sqlite3
 import os
+import xml.etree.ElementTree as ET
 from pathlib import Path
+from datetime import datetime
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
 
 
 class Storage:
@@ -187,3 +191,154 @@ class Storage:
 
     def close(self):
         self._conn.close()
+
+    # ── Import / Export (XML plist format compatible with Clipy macOS) ────
+
+    def export_snippets_xml(self) -> str:
+        """
+        Export all snippets and folders to XML plist format.
+        Compatible with Clipy for macOS.
+        """
+        # Create root plist structure
+        plist = ET.Element('plist', version='1.0')
+        root_dict = ET.SubElement(plist, 'dict')
+        
+        # Add version
+        ET.SubElement(root_dict, 'key').text = 'version'
+        ET.SubElement(root_dict, 'string').text = '1.0'
+        
+        # Add folders
+        ET.SubElement(root_dict, 'key').text = 'folders'
+        folders_array = ET.SubElement(root_dict, 'array')
+        
+        for folder in self._conn.execute('SELECT * FROM folders ORDER BY sort_order, name').fetchall():
+            folder_dict = ET.SubElement(folders_array, 'dict')
+            
+            # Folder name
+            ET.SubElement(folder_dict, 'key').text = 'name'
+            ET.SubElement(folder_dict, 'string').text = folder['name']
+            
+            # Folder snippets
+            ET.SubElement(folder_dict, 'key').text = 'snippets'
+            snippets_array = ET.SubElement(folder_dict, 'array')
+            
+            folder_snippets = self._conn.execute(
+                'SELECT * FROM snippets WHERE folder_id=? ORDER BY title', (folder['id'],)
+            ).fetchall()
+            
+            for snippet in folder_snippets:
+                snippet_dict = ET.SubElement(snippets_array, 'dict')
+                ET.SubElement(snippet_dict, 'key').text = 'title'
+                ET.SubElement(snippet_dict, 'string').text = snippet['title']
+                ET.SubElement(snippet_dict, 'key').text = 'content'
+                ET.SubElement(snippet_dict, 'string').text = snippet['content']
+        
+        # Add root-level snippets
+        ET.SubElement(root_dict, 'key').text = 'snippets'
+        root_snippets_array = ET.SubElement(root_dict, 'array')
+        
+        root_snippets = self._conn.execute(
+            'SELECT * FROM snippets WHERE folder_id IS NULL ORDER BY title'
+        ).fetchall()
+        
+        for snippet in root_snippets:
+            snippet_dict = ET.SubElement(root_snippets_array, 'dict')
+            ET.SubElement(snippet_dict, 'key').text = 'title'
+            ET.SubElement(snippet_dict, 'string').text = snippet['title']
+            ET.SubElement(snippet_dict, 'key').text = 'content'
+            ET.SubElement(snippet_dict, 'string').text = snippet['content']
+        
+        # Generate XML string with proper formatting
+        xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n'
+        xml_str += '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        xml_str += ET.tostring(plist, encoding='unicode')
+        
+        return self._format_plist_xml(xml_str)
+
+    def _format_plist_xml(self, xml_str: str) -> str:
+        """Format XML with proper indentation for readability."""
+        try:
+            import xml.dom.minidom
+            dom = xml.dom.minidom.parseString(xml_str)
+            return dom.toprettyxml(indent='  ', encoding='UTF-8').decode('utf-8')
+        except Exception:
+            return xml_str
+
+    def import_snippets_xml(self, xml_content: str, merge: bool = False):
+        """
+        Import snippets from XML plist format.
+        Compatible with Clipy for macOS.
+        If merge=False, clears existing snippets first.
+        """
+        try:
+            # Parse XML
+            root = ET.fromstring(xml_content)
+            
+            # Find the main dict element
+            main_dict = root.find('dict')
+            if main_dict is None:
+                raise ValueError('Invalid plist format: no dict element found')
+            
+            if not merge:
+                self._conn.execute('DELETE FROM snippets')
+                self._conn.execute('DELETE FROM folders')
+                self._conn.commit()
+            
+            # Parse the dict structure
+            keys = main_dict.findall('key')
+            for i, key in enumerate(keys):
+                if key.text == 'folders':
+                    # Get the next element which should be the array
+                    folders_array = main_dict[i * 2 + 1]
+                    if folders_array.tag == 'array':
+                        self._import_folders_from_xml(folders_array)
+                
+                elif key.text == 'snippets':
+                    # Get the next element which should be the array
+                    snippets_array = main_dict[i * 2 + 1]
+                    if snippets_array.tag == 'array':
+                        self._import_snippets_from_xml(snippets_array, None)
+            
+            self._conn.commit()
+            return True
+            
+        except Exception as e:
+            self._conn.rollback()
+            raise ValueError(f'Failed to import snippets: {str(e)}')
+
+    def _import_folders_from_xml(self, folders_array):
+        """Import folders from XML array element."""
+        for folder_dict in folders_array.findall('dict'):
+            folder_name = None
+            snippets_array = None
+            
+            keys = folder_dict.findall('key')
+            for i, key in enumerate(keys):
+                if key.text == 'name':
+                    name_elem = folder_dict[i * 2 + 1]
+                    folder_name = name_elem.text or 'Untitled'
+                elif key.text == 'snippets':
+                    snippets_array = folder_dict[i * 2 + 1]
+            
+            if folder_name:
+                folder_id = self.add_folder(folder_name)
+                if snippets_array is not None and snippets_array.tag == 'array':
+                    self._import_snippets_from_xml(snippets_array, folder_id)
+
+    def _import_snippets_from_xml(self, snippets_array, folder_id):
+        """Import snippets from XML array element."""
+        for snippet_dict in snippets_array.findall('dict'):
+            title = None
+            content = None
+            
+            keys = snippet_dict.findall('key')
+            for i, key in enumerate(keys):
+                if key.text == 'title':
+                    title_elem = snippet_dict[i * 2 + 1]
+                    title = title_elem.text or 'Untitled'
+                elif key.text == 'content':
+                    content_elem = snippet_dict[i * 2 + 1]
+                    content = content_elem.text or ''
+            
+            if title and content is not None:
+                self.add_snippet(title, content, folder_id)

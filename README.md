@@ -8,6 +8,7 @@
 |---------|-------------|
 | **Clipboard History** | Automatically saves copied text (up to 100 items) |
 | **Snippet Management** | Organize frequently used text in folders |
+| **Import/Export Snippets** | XML plist format compatible with Clipy for macOS |
 | **Custom Shortcuts** | Freely configure hotkeys (default: `Ctrl+Shift+V`) |
 | **Incremental Search** | Real-time filtering within the popup |
 | **System Tray Resident** | Runs in background, accessible via right-click menu |
@@ -44,6 +45,15 @@ This generates `dist\Clipy.exe`.
 3. Select an item with arrow keys or mouse, then press Enter or click to paste.
 4. Type in the popup to filter search results.
 5. Right-click the tray icon to access various features.
+
+### Snippet Management
+
+- Right-click tray icon → **Snippet Manager** to create and organize snippets
+- Organize snippets into folders for better organization
+- **Import/Export**: Use the Import/Export buttons in the Snippet Manager to:
+  - Export your snippets to XML plist format (compatible with Clipy for macOS)
+  - Import snippets from Clipy for macOS or other Clipy for Windows installations
+  - Choose to merge with existing snippets or replace them during import
 
 ## Settings
 
