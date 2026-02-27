@@ -12,7 +12,7 @@ Layout (monochrome flat design):
   ├─────────────────────────────┤
   │ SNIPPETS                    │
   │  root_snippet               │
-  │  Folder A               ▶   │ ← hover → submenu flies out to the right
+  │  Folder A                 > │ ← hover → submenu flies out to the right
   └─────────────────────────────┘
       ↓ hover on folder
   ┌─────────────────────────────┐
@@ -39,15 +39,15 @@ DARK = dict(
 )
 LIGHT = dict(
     bg='#ffffff',        fg='#1a1a1a',
-    header_bg='#f5f5f5', header_fg='#999999',
-    select_bg='#e8e8e8', select_fg='#000000',
-    hover_bg='#f0f0f0',
-    search_bg='#f8f8f8', search_fg='#333333', search_cursor='#333333',
-    border='#e0e0e0',
-    footer_bg='#fafafa', footer_fg='#bbbbbb',
-    folder_fg='#999999',
-    mode_bg='#f5f5f5',   mode_fg='#aaaaaa',
-    sub_bg='#ffffff',    sub_border='#e0e0e0',
+    header_bg='#f0f0f0', header_fg='#555555',
+    select_bg='#daeeff', select_fg='#000000',
+    hover_bg='#eef6ff',
+    search_bg='#f8f8f8', search_fg='#1a1a1a', search_cursor='#1a1a1a',
+    border='#d0d0d0',
+    footer_bg='#f5f5f5', footer_fg='#777777',
+    folder_fg='#444444',
+    mode_bg='#f0f0f0',   mode_fg='#555555',
+    sub_bg='#ffffff',    sub_border='#c0c0c0',
 )
 
 WIN_W, WIN_H = 380, 500
@@ -55,7 +55,7 @@ SUB_W = 240          # submenu width
 MAX_DISPLAY = 75     # chars per item line
 HOVER_DELAY  = 140   # ms before submenu appears
 LEAVE_DELAY  = 250   # ms before submenu closes
-
+CONTENT_DELAY = 400  # ms before content appears
 
 class _Entry:
     __slots__ = ('kind', 'item_id', 'label', 'content')
@@ -91,6 +91,8 @@ class PopupMenu:
         self._leave_timer  = None
         self._C: dict = {}
         self._mode = 'all'
+        self._tooltip      = None
+        self._tooltip_after = None
 
     # ── Public ────────────────────────────────────────────────────────────
 
@@ -262,12 +264,9 @@ class PopupMenu:
                     for s in snips:
                         self._add_row(_Entry('snippet', s['id'], s['title'], s['content']))
             else:
-                folders   = self.storage.get_folders()
-                root_snips = self.storage.get_snippets(folder_id=None)
-                if folders or root_snips:
+                folders = self.storage.get_folders_by_usage()
+                if folders:
                     self._add_section('SNIPPETS')
-                    for s in root_snips:
-                        self._add_row(_Entry('snippet', s['id'], s['title'], s['content']))
                     for folder in folders:
                         # Only show folder if it has snippets
                         if self.storage.get_snippets(folder_id=folder['id']):
@@ -316,7 +315,7 @@ class PopupMenu:
         self._entries.append(entry)
         self._row_frames.append((f, lbl))
 
-    # ── Folder row (with ▶ and submenu on hover) ──────────────────────────
+    # ── Folder row (with > and submenu on hover) ──────────────────────────
 
     def _add_folder_row(self, folder_id: int, name: str):
         C   = self._C
@@ -326,14 +325,14 @@ class PopupMenu:
         lbl = tk.Label(f, text=f'  {name}', bg=C['bg'], fg=C['folder_fg'],
                        font=('Segoe UI', 10), anchor='w')
         lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        arrow = tk.Label(f, text='▶', bg=C['bg'], fg=C['folder_fg'],
+        arrow = tk.Label(f, text='>', bg=C['bg'], fg=C['folder_fg'],
                          font=('Segoe UI', 8))
         arrow.pack(side=tk.RIGHT)
 
         for w in (f, lbl, arrow):
             w.bind('<Enter>', lambda e, fid=folder_id, fn=name, fr=f:
                    self._folder_enter(fid, fn, fr))
-            w.bind('<Leave>', lambda e: self._folder_leave())
+            w.bind('<Leave>', lambda e, fr=f: self._folder_leave(fr))
             w.bind('<Button-1>', lambda e, fid=folder_id, fn=name, fr=f:
                    self._open_sub(fid, fn, fr))
 
@@ -344,19 +343,23 @@ class PopupMenu:
 
     def _folder_enter(self, folder_id: int, name: str, frame):
         self._cancel_hover_timer()
-        # Highlight folder row
         C = self._C
-        fr, lbl = frame, None
+        frame.configure(bg=C['select_bg'])
         for child in frame.winfo_children():
             if isinstance(child, tk.Label):
-                child.configure(bg=C['hover_bg'])
-        frame.configure(bg=C['hover_bg'])
+                child.configure(bg=C['select_bg'], fg=C['fg'])
         self._hover_timer = self.root.after(
             HOVER_DELAY, lambda: self._open_sub(folder_id, name, frame)
         )
 
-    def _folder_leave(self):
+    def _folder_leave(self, frame=None):
         self._cancel_hover_timer()
+        if frame:
+            C = self._C
+            frame.configure(bg=C['bg'])
+            for child in frame.winfo_children():
+                if isinstance(child, tk.Label):
+                    child.configure(bg=C['bg'], fg=C['folder_fg'])
         self._leave_timer = self.root.after(LEAVE_DELAY, self._maybe_close_sub)
 
     def _maybe_close_sub(self):
@@ -407,10 +410,31 @@ class PopupMenu:
                  font=('Segoe UI', 8)).pack(anchor='w')
         tk.Frame(outer, bg=C['border'], height=1).pack(fill=tk.X)
 
-        # Snippet items
+        # Scrollable snippet list
+        SUB_MAX_H = 320
+        lc = tk.Frame(outer, bg=C['bg'])
+        lc.pack(fill=tk.BOTH, expand=True)
+        sub_canvas = tk.Canvas(lc, bg=C['bg'], highlightthickness=0, bd=0)
+        sb = tk.Scrollbar(lc, orient=tk.VERTICAL, command=sub_canvas.yview)
+        inner = tk.Frame(sub_canvas, bg=C['bg'])
+        inner.bind('<Configure>', lambda e: sub_canvas.configure(
+            scrollregion=sub_canvas.bbox('all')))
+        cw = sub_canvas.create_window((0, 0), window=inner, anchor='nw')
+        sub_canvas.configure(yscrollcommand=sb.set)
+        sub_canvas.bind('<Configure>', lambda e: sub_canvas.itemconfig(cw, width=e.width))
+
         for s in snippets:
             entry = _Entry('snippet', s['id'], s['title'], s['content'])
-            self._add_sub_item(outer, entry, C)
+            self._add_sub_item(inner, entry, C)
+
+        sub_canvas.update_idletasks()
+        items_h = inner.winfo_reqheight()
+        sub_canvas.configure(height=min(items_h, SUB_MAX_H))
+        sub_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        if items_h > SUB_MAX_H:
+            sb.pack(side=tk.RIGHT, fill=tk.Y)
+        sub.bind('<MouseWheel>',
+                 lambda e: sub_canvas.yview_scroll(-1 * (e.delta // 120), 'units'))
 
         # Position: to the right of the main popup at the folder row's y
         sub.update_idletasks()
@@ -447,14 +471,88 @@ class PopupMenu:
         lbl.pack(anchor='w', fill=tk.X)
         for w in (f, lbl):
             w.bind('<Button-1>', lambda e, en=entry: self._sub_select(en))
-            w.bind('<Enter>',    lambda e, fr=f, lb=lbl: (
-                fr.configure(bg=C['select_bg']),
-                lb.configure(bg=C['select_bg'], fg=C['select_fg']),
-            ))
-            w.bind('<Leave>',    lambda e, fr=f, lb=lbl: (
-                fr.configure(bg=C['bg']),
-                lb.configure(bg=C['bg'], fg=C['fg']),
-            ))
+            w.bind('<Enter>',    lambda e, fr=f, lb=lbl, ct=entry.content:
+                   self._sub_item_enter(fr, lb, ct, C))
+            w.bind('<Leave>',    lambda e, fr=f, lb=lbl:
+                   self._sub_item_leave(fr, lb, C))
+
+    def _sub_item_enter(self, frame, lbl, content: str, C: dict):
+        frame.configure(bg=C['select_bg'])
+        lbl.configure(bg=C['select_bg'], fg=C['select_fg'])
+        self._schedule_tooltip(content, frame)
+
+    def _sub_item_leave(self, frame, lbl, C: dict):
+        frame.configure(bg=C['bg'])
+        lbl.configure(bg=C['bg'], fg=C['fg'])
+        self._hide_tooltip()
+
+    # ── Tooltip ───────────────────────────────────────────────────────────
+
+    def _schedule_tooltip(self, content: str, widget):
+        self._hide_tooltip()
+        self._tooltip_after = self.root.after(
+            CONTENT_DELAY, lambda: self._show_tooltip(content, widget)
+        )
+
+    def _show_tooltip(self, content: str, widget):
+        self._tooltip_after = None
+        if not (self._sub and self._sub.winfo_exists()):
+            return
+        C = self._C
+
+        # Build preview: max 8 lines, max 60 chars per line
+        lines = content.split('\n')
+        preview_lines = []
+        for line in lines[:8]:
+            preview_lines.append(line[:60] + ('…' if len(line) > 60 else ''))
+        if len(lines) > 8:
+            preview_lines.append('…')
+        preview = '\n'.join(preview_lines)
+
+        tip = tk.Toplevel(self.root)
+        self._tooltip = tip
+        tip.withdraw()
+        tip.overrideredirect(True)
+        tip.attributes('-topmost', True)
+        tip.configure(bg=C['border'])
+
+        inner = tk.Frame(tip, bg=C['header_bg'], padx=10, pady=8)
+        inner.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
+        tk.Label(inner, text=preview, bg=C['header_bg'], fg=C['fg'],
+                 font=('Segoe UI', 9), anchor='w', justify=tk.LEFT).pack(anchor='w')
+
+        tip.update_idletasks()
+        tip_w = tip.winfo_reqwidth()
+        tip_h = tip.winfo_reqheight()
+        scr_w = tip.winfo_screenwidth()
+        scr_h = tip.winfo_screenheight()
+
+        try:
+            sub_x = self._sub.winfo_x()
+            sub_w = self._sub.winfo_width()
+            wy    = widget.winfo_rooty()
+        except Exception:
+            return
+
+        x = sub_x + sub_w + 4
+        if x + tip_w > scr_w - 4:
+            x = sub_x - tip_w - 4
+        y = wy
+        if y + tip_h > scr_h - 40:
+            y = scr_h - tip_h - 40
+        y = max(y, 4)
+
+        tip.geometry(f'{tip_w}x{tip_h}+{x}+{y}')
+        tip.deiconify()
+        tip.lift()
+
+    def _hide_tooltip(self):
+        if self._tooltip_after:
+            self.root.after_cancel(self._tooltip_after)
+            self._tooltip_after = None
+        if self._tooltip and self._tooltip.winfo_exists():
+            self._tooltip.destroy()
+        self._tooltip = None
 
     def _sub_select(self, entry: _Entry):
         self._close_sub()
@@ -468,6 +566,7 @@ class PopupMenu:
     def _close_sub(self):
         self._cancel_hover_timer()
         self._cancel_leave_timer()
+        self._hide_tooltip()
         if self._sub and self._sub.winfo_exists():
             self._sub.destroy()
         self._sub = None

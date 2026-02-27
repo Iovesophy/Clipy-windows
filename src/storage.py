@@ -4,7 +4,11 @@ Uses SQLite to persist clipboard history, snippets, and settings.
 """
 import sqlite3
 import os
+import xml.etree.ElementTree as ET
 from pathlib import Path
+from datetime import datetime
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
 
 
 class Storage:
@@ -53,9 +57,9 @@ class Storage:
     def _init_default_settings(self):
         defaults = {
             'max_history': '100',
-            'hotkey_main':     'ctrl+shift+v',   # 履歴+スニペット両方
-            'hotkey_history':  'ctrl+shift+h',   # 履歴のみ
-            'hotkey_snippets': 'ctrl+shift+s',   # スニペットのみ
+            'hotkey_main':     'ctrl+shift+v',   # History + Snippets
+            'hotkey_history':  'ctrl+shift+h',   # History only
+            'hotkey_snippets': 'ctrl+shift+s',   # Snippets only
             'start_with_windows': 'false',
             'theme': 'dark',
         }
@@ -73,6 +77,26 @@ class Storage:
     def set_setting(self, key, value):
         self._conn.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, str(value)))
         self._conn.commit()
+
+    # ── Windows startup ───────────────────────────────────────────────────
+
+    def apply_startup(self, enabled: bool):
+        """Add or remove Clipy from HKCU Run registry key."""
+        import winreg, sys
+        key_path = r'Software\Microsoft\Windows\CurrentVersion\Run'
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
+            if enabled:
+                exe = sys.executable
+                winreg.SetValueEx(key, 'Clipy', 0, winreg.REG_SZ, f'"{exe}"')
+            else:
+                try:
+                    winreg.DeleteValue(key, 'Clipy')
+                except FileNotFoundError:
+                    pass
+            winreg.CloseKey(key)
+        except Exception as e:
+            print(f'[Clipy] startup registry error: {e}')
 
     # ── Clipboard history ─────────────────────────────────────────────────
 
@@ -125,6 +149,17 @@ class Storage:
         return self._conn.execute(
             'SELECT * FROM folders WHERE parent_id=? ORDER BY sort_order, name', (parent_id,)
         ).fetchall()
+
+    def get_folders_by_usage(self):
+        """Return root folders sorted by total snippet usage (descending), then name."""
+        return self._conn.execute('''
+            SELECT f.*, COALESCE(SUM(s.times_used), 0) AS total_used
+            FROM folders f
+            LEFT JOIN snippets s ON s.folder_id = f.id
+            WHERE f.parent_id IS NULL
+            GROUP BY f.id
+            ORDER BY total_used DESC, f.name
+        ''').fetchall()
 
     def add_folder(self, name: str, parent_id=None) -> int:
         cur = self._conn.execute('INSERT INTO folders (name, parent_id) VALUES (?, ?)', (name, parent_id))
@@ -185,5 +220,139 @@ class Storage:
         )
         self._conn.commit()
 
+    def reset_usage_counts(self):
+        self._conn.execute('UPDATE snippets SET times_used=0')
+        self._conn.commit()
+
     def close(self):
         self._conn.close()
+
+    # ── Import / Export (XML format compatible with Clipy macOS) ────────
+
+    def export_snippets_xml(self) -> str:
+        """
+        Export all snippets and folders to XML format.
+        Compatible with Clipy for macOS.
+        """
+        root = ET.Element('folders')
+        
+        # Export folders with their snippets
+        for folder in self._conn.execute('SELECT * FROM folders ORDER BY sort_order, name').fetchall():
+            folder_elem = ET.SubElement(root, 'folder')
+            
+            # Folder title
+            title_elem = ET.SubElement(folder_elem, 'title')
+            title_elem.text = folder['name']
+            
+            # Folder snippets
+            snippets_elem = ET.SubElement(folder_elem, 'snippets')
+            
+            folder_snippets = self._conn.execute(
+                'SELECT * FROM snippets WHERE folder_id=? ORDER BY title', (folder['id'],)
+            ).fetchall()
+            
+            for snippet in folder_snippets:
+                snippet_elem = ET.SubElement(snippets_elem, 'snippet')
+                snippet_title = ET.SubElement(snippet_elem, 'title')
+                snippet_title.text = snippet['title']
+                snippet_content = ET.SubElement(snippet_elem, 'content')
+                snippet_content.text = snippet['content']
+        
+        # Export root-level snippets as a special folder
+        root_snippets = self._conn.execute(
+            'SELECT * FROM snippets WHERE folder_id IS NULL ORDER BY title'
+        ).fetchall()
+        
+        if root_snippets:
+            root_folder = ET.SubElement(root, 'folder')
+            root_title = ET.SubElement(root_folder, 'title')
+            root_title.text = 'Root Snippets'
+            root_snippets_elem = ET.SubElement(root_folder, 'snippets')
+            
+            for snippet in root_snippets:
+                snippet_elem = ET.SubElement(root_snippets_elem, 'snippet')
+                snippet_title = ET.SubElement(snippet_elem, 'title')
+                snippet_title.text = snippet['title']
+                snippet_content = ET.SubElement(snippet_elem, 'content')
+                snippet_content.text = snippet['content']
+        
+        # Generate XML string with proper formatting
+        xml_str = ET.tostring(root, encoding='unicode')
+        return self._format_xml(xml_str)
+
+    def _format_xml(self, xml_str: str) -> str:
+        """Format XML with proper indentation for readability."""
+        try:
+            import xml.dom.minidom
+            dom = xml.dom.minidom.parseString(xml_str)
+            # Remove extra blank lines
+            pretty_xml = dom.toprettyxml(indent='  ', encoding='utf-8').decode('utf-8')
+            # Add XML declaration matching Clipy format
+            lines = [line for line in pretty_xml.split('\n') if line.strip()]
+            if lines and lines[0].startswith('<?xml'):
+                lines[0] = '<?xml version="1.0" encoding="utf-8" standalone="no"?>'
+            return '\n'.join(lines)
+        except Exception:
+            return '<?xml version="1.0" encoding="utf-8" standalone="no"?>\n' + xml_str
+
+    def import_snippets_xml(self, xml_content: str, merge: bool = False):
+        """
+        Import snippets from XML format.
+        Compatible with Clipy for macOS.
+        If merge=False, clears existing snippets first.
+        """
+        try:
+            # Parse XML
+            root = ET.fromstring(xml_content)
+            
+            # Check if root is 'folders' element (Clipy format)
+            if root.tag != 'folders':
+                raise ValueError('Invalid Clipy XML format: root element must be <folders>')
+            
+            if not merge:
+                self._conn.execute('DELETE FROM snippets')
+                self._conn.execute('DELETE FROM folders')
+                self._conn.commit()
+            
+            # Import each folder
+            for folder_elem in root.findall('folder'):
+                title_elem = folder_elem.find('title')
+                if title_elem is None or not title_elem.text:
+                    continue
+                
+                folder_name = title_elem.text
+                
+                # Skip "Root Snippets" folder - import as root-level snippets
+                if folder_name == 'Root Snippets':
+                    snippets_elem = folder_elem.find('snippets')
+                    if snippets_elem is not None:
+                        self._import_snippets_from_xml_elem(snippets_elem, None)
+                else:
+                    # Create folder
+                    folder_id = self.add_folder(folder_name)
+                    
+                    # Import snippets in this folder
+                    snippets_elem = folder_elem.find('snippets')
+                    if snippets_elem is not None:
+                        self._import_snippets_from_xml_elem(snippets_elem, folder_id)
+            
+            self._conn.commit()
+            return True
+            
+        except Exception as e:
+            self._conn.rollback()
+            raise ValueError(f'Failed to import snippets: {str(e)}')
+
+    def _import_snippets_from_xml_elem(self, snippets_elem, folder_id):
+        """Import snippets from XML snippets element."""
+        for snippet_elem in snippets_elem.findall('snippet'):
+            title_elem = snippet_elem.find('title')
+            content_elem = snippet_elem.find('content')
+            
+            if title_elem is None or not title_elem.text:
+                continue
+            
+            title = title_elem.text
+            content = content_elem.text if content_elem is not None and content_elem.text else ''
+            
+            self.add_snippet(title, content, folder_id)

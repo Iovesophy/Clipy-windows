@@ -20,7 +20,7 @@ class ClipyApp:
         # Hidden root window — all Toplevel dialogs are children of this
         self.root = tk.Tk()
         self.root.withdraw()
-        self.root.title('Clipy')
+        self.root.title('Clipy for Windows')
         self.root.protocol('WM_DELETE_WINDOW', self.quit)
 
         # Core UI

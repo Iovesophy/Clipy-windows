@@ -3,16 +3,16 @@ Snippet manager dialog.
 Lets users create/edit/delete snippets and folders.
 """
 import tkinter as tk
-from tkinter import messagebox, simpledialog
+from tkinter import ttk, messagebox, simpledialog, filedialog
 
 
 class SnippetEditor(tk.Toplevel):
     def __init__(self, parent, storage):
         super().__init__(parent)
         self.storage = storage
-        self.title('Clipy — Snippet Manager')
-        self.geometry('720x520')
-        self.minsize(600, 420)
+        self.title('Clipy for Windows — Snippet Manager')
+        self.geometry('760x620')
+        self.minsize(640, 520)
         self.grab_set()
         self.attributes('-topmost', True)
 
@@ -31,8 +31,8 @@ class SnippetEditor(tk.Toplevel):
                 bg='#f5f5f5', fg='#1a1a1a',
                 panel='#ffffff', item_bg='#efefef',
                 select='#0078d4', select_fg='#ffffff',
-                border='#d0d0d0', btn='#e0e0e0',
-                text_bg='#ffffff', muted='#888888',
+                border='#c8c8c8', btn='#d8d8d8',
+                text_bg='#ffffff', muted='#555555',
                 new_badge='#0078d4', edit_badge='#107c10',
             )
 
@@ -41,6 +41,7 @@ class SnippetEditor(tk.Toplevel):
         self._editing_snip: int | None = None
         self._folder_ids: list = []
         self._snip_ids: list = []
+        self._combo_folder_ids: list = []
         self._build()
         self._refresh()
         self._set_new_mode()
@@ -60,7 +61,7 @@ class SnippetEditor(tk.Toplevel):
         main.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
         # ── Left: folder tree ────────────────────────────────────────────
-        left = tk.Frame(main, bg=C['panel'], width=175, relief=tk.FLAT)
+        left = tk.Frame(main, bg=C['panel'], width=220, relief=tk.FLAT)
         left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 4))
         left.pack_propagate(False)
 
@@ -78,18 +79,59 @@ class SnippetEditor(tk.Toplevel):
 
         fb = tk.Frame(left, bg=C['panel'])
         fb.pack(fill=tk.X, pady=4, padx=4)
-        for text, cmd in (('+ Folder', self._add_folder), ('Delete', self._del_folder)):
+        for text, cmd in (('+ Folder', self._add_folder), ('Rename', self._rename_folder), ('Delete', self._del_folder)):
             tk.Button(fb, text=text, command=cmd, bg=C['btn'], fg=C['fg'],
                       relief=tk.FLAT, padx=6, pady=3,
                       font=('Segoe UI', 9), cursor='hand2').pack(side=tk.LEFT, padx=2)
 
-        # ── Right: snippet list + editor ──────────────────────────────────
+        # Import/Export buttons
+        tk.Frame(left, bg=C['border'], height=1).pack(fill=tk.X, pady=2)
+        ieb = tk.Frame(left, bg=C['panel'])
+        ieb.pack(fill=tk.X, pady=4, padx=4)
+        tk.Button(ieb, text='Import', command=self._import_snippets, bg=C['btn'], fg=C['fg'],
+                  relief=tk.FLAT, padx=6, pady=3,
+                  font=('Segoe UI', 9), cursor='hand2').pack(side=tk.LEFT, padx=2)
+        tk.Button(ieb, text='Export', command=self._export_snippets, bg=C['btn'], fg=C['fg'],
+                  relief=tk.FLAT, padx=6, pady=3,
+                  font=('Segoe UI', 9), cursor='hand2').pack(side=tk.LEFT, padx=2)
+
+        # ── Right: snippet list + editor (vertically resizable via PanedWindow) ──
         right = tk.Frame(main, bg=C['bg'])
         right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # Snippet listbox
-        list_frame = tk.Frame(right, bg=C['panel'])
-        list_frame.pack(fill=tk.X)
+        # Toolbar — packed first at bottom so it is always visible
+        tk.Frame(right, bg=C['border'], height=1).pack(side=tk.BOTTOM, fill=tk.X)
+        tb = tk.Frame(right, bg=C['bg'])
+        tb.pack(side=tk.BOTTOM, fill=tk.X, padx=2, pady=4)
+        tk.Button(tb, text='Save & Next', command=self._new_snippet_action,
+                  bg=C['select'], fg='#ffffff',
+                  relief=tk.FLAT, padx=10, pady=4,
+                  font=('Segoe UI', 9, 'bold'), cursor='hand2').pack(side=tk.LEFT, padx=(0, 4))
+        tk.Button(tb, text='Delete', command=self._del_snippet,
+                  bg=C['btn'], fg=C['fg'],
+                  relief=tk.FLAT, padx=8, pady=4,
+                  font=('Segoe UI', 9), cursor='hand2').pack(side=tk.LEFT, padx=(0, 4))
+        self._save_btn = tk.Button(
+            tb, text='+ Add', command=self._save_snippet,
+            bg='#0078d4', fg='#ffffff', relief=tk.FLAT,
+            padx=10, pady=4, font=('Segoe UI', 9, 'bold'), cursor='hand2',
+        )
+        self._save_btn.pack(side=tk.LEFT)
+
+        # PanedWindow takes all remaining space above the toolbar
+        paned = tk.PanedWindow(
+            right, orient=tk.VERTICAL,
+            bg=C['border'], sashwidth=5, sashrelief=tk.FLAT,
+            handlesize=0, opaqueresize=True,
+        )
+        paned.pack(fill=tk.BOTH, expand=True)
+
+        # ── Top pane: snippet list ────────────────────────────────────────
+        top_pane = tk.Frame(paned, bg=C['bg'])
+        paned.add(top_pane, minsize=60, stretch='always')
+
+        list_frame = tk.Frame(top_pane, bg=C['panel'])
+        list_frame.pack(fill=tk.BOTH, expand=True)
         tk.Label(list_frame, text='Snippets', bg=C['panel'], fg=C['fg'],
                  font=('Segoe UI', 10, 'bold'), anchor='w', padx=8, pady=5).pack(fill=tk.X)
         tk.Frame(list_frame, bg=C['border'], height=1).pack(fill=tk.X)
@@ -97,30 +139,18 @@ class SnippetEditor(tk.Toplevel):
         self._snip_lb = tk.Listbox(
             list_frame, bg=C['panel'], fg=C['fg'],
             selectbackground=C['select'], selectforeground=C['select_fg'],
-            font=('Segoe UI', 10), relief=tk.FLAT, bd=0,
-            height=7, activestyle='none',
+            font=('Segoe UI', 10), relief=tk.FLAT, bd=0, activestyle='none',
         )
-        self._snip_lb.pack(fill=tk.X, padx=2, pady=2)
+        self._snip_lb.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         self._snip_lb.bind('<<ListboxSelect>>', self._on_snip_select)
 
-        # Toolbar below listbox
-        tb = tk.Frame(right, bg=C['bg'])
-        tb.pack(fill=tk.X, pady=(4, 0))
-        tk.Button(tb, text='+ New Snippet (Save and Next)', command=self._new_snippet_action,
-                  bg=C['select'], fg='#ffffff',
-                  relief=tk.FLAT, padx=10, pady=3,
-                  font=('Segoe UI', 9, 'bold'), cursor='hand2').pack(side=tk.LEFT, padx=(0, 4))
-        tk.Button(tb, text='Delete', command=self._del_snippet,
-                  bg=C['btn'], fg=C['fg'],
-                  relief=tk.FLAT, padx=8, pady=3,
-                  font=('Segoe UI', 9), cursor='hand2').pack(side=tk.LEFT)
-
-        # ── Editor form ───────────────────────────────────────────────────
-        tk.Frame(right, bg=C['border'], height=1).pack(fill=tk.X, pady=(6, 0))
+        # ── Bottom pane: editor form ──────────────────────────────────────
+        bot_pane = tk.Frame(paned, bg=C['bg'])
+        paned.add(bot_pane, minsize=100, stretch='always')
 
         # Mode indicator bar
-        mode_bar = tk.Frame(right, bg=C['bg'])
-        mode_bar.pack(fill=tk.X, pady=(4, 2))
+        mode_bar = tk.Frame(bot_pane, bg=C['bg'])
+        mode_bar.pack(fill=tk.X, pady=(6, 2))
         self._mode_badge = tk.Label(
             mode_bar, text='', bg=C['new_badge'], fg='#ffffff',
             font=('Segoe UI', 8, 'bold'), padx=6, pady=2,
@@ -132,34 +162,50 @@ class SnippetEditor(tk.Toplevel):
         )
         self._mode_label.pack(side=tk.LEFT, padx=(6, 0))
 
+        # Folder selector
+        style = ttk.Style(self)
+        style.theme_use('default')
+        style.configure('Folder.TCombobox',
+            fieldbackground=C['text_bg'], background=C['btn'],
+            foreground=C['fg'], selectbackground=C['text_bg'],
+            selectforeground=C['fg'], arrowcolor=C['fg'],
+        )
+        style.map('Folder.TCombobox',
+            fieldbackground=[('readonly', C['text_bg'])],
+            selectbackground=[('readonly', C['text_bg'])],
+            selectforeground=[('readonly', C['fg'])],
+        )
+        folder_row = tk.Frame(bot_pane, bg=C['bg'])
+        folder_row.pack(fill=tk.X, padx=2, pady=(0, 5))
+        tk.Label(folder_row, text='Folder:', bg=C['bg'], fg=C['fg'],
+                 font=('Segoe UI', 9), width=8, anchor='w').pack(side=tk.LEFT)
+        self._folder_var = tk.StringVar()
+        self._folder_combo = ttk.Combobox(
+            folder_row, textvariable=self._folder_var,
+            state='readonly', font=('Segoe UI', 10), style='Folder.TCombobox',
+        )
+        self._folder_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
         # Title
-        tk.Label(right, text='Title:', bg=C['bg'], fg=C['fg'],
+        tk.Label(bot_pane, text='Title:', bg=C['bg'], fg=C['fg'],
                  font=('Segoe UI', 9), anchor='w').pack(anchor='w', padx=2)
         self._title_var = tk.StringVar()
         self._title_entry = tk.Entry(
-            right, textvariable=self._title_var,
+            bot_pane, textvariable=self._title_var,
             bg=C['text_bg'], fg=C['fg'], insertbackground=C['fg'],
             font=('Segoe UI', 10), relief=tk.FLAT, bd=4,
         )
         self._title_entry.pack(fill=tk.X, padx=2, pady=(0, 5))
 
         # Content
-        tk.Label(right, text='Content (Template Text):', bg=C['bg'], fg=C['fg'],
+        tk.Label(bot_pane, text='Content (Template Text):', bg=C['bg'], fg=C['fg'],
                  font=('Segoe UI', 9), anchor='w').pack(anchor='w', padx=2)
         self._content_txt = tk.Text(
-            right, bg=C['text_bg'], fg=C['fg'],
+            bot_pane, bg=C['text_bg'], fg=C['fg'],
             insertbackground=C['fg'], font=('Segoe UI', 10),
             relief=tk.FLAT, bd=4, wrap=tk.WORD,
         )
         self._content_txt.pack(fill=tk.BOTH, expand=True, padx=2, pady=(0, 6))
-
-        # Save button (label changes dynamically)
-        self._save_btn = tk.Button(
-            right, text='+ Add', command=self._save_snippet,
-            bg='#0078d4', fg='#ffffff', relief=tk.FLAT,
-            padx=14, pady=6, font=('Segoe UI', 10, 'bold'), cursor='hand2',
-        )
-        self._save_btn.pack(anchor='e', padx=2)
 
         # Ctrl+Return shortcut to save
         self.bind('<Control-Return>', lambda e: self._save_snippet())
@@ -176,6 +222,7 @@ class SnippetEditor(tk.Toplevel):
         self._title_var.set('')
         self._content_txt.delete('1.0', tk.END)
         self._snip_lb.selection_clear(0, tk.END)
+        self._set_combo_folder(self._current_folder)
         self._title_entry.focus_set()
 
     def _set_edit_mode(self, title: str):
@@ -188,6 +235,18 @@ class SnippetEditor(tk.Toplevel):
 
     # ── Data ──────────────────────────────────────────────────────────────
 
+    def _refresh_folder_combo(self):
+        folders = self.storage.get_folders()
+        self._combo_folder_ids = [None] + [f['id'] for f in folders]
+        self._folder_combo['values'] = ['(No folder)'] + [f['name'] for f in folders]
+
+    def _set_combo_folder(self, folder_id):
+        try:
+            idx = self._combo_folder_ids.index(folder_id)
+        except ValueError:
+            idx = 0
+        self._folder_combo.current(idx)
+
     def _refresh(self):
         self._folder_lb.delete(0, tk.END)
         self._folder_ids = [None]
@@ -196,6 +255,7 @@ class SnippetEditor(tk.Toplevel):
             self._folder_lb.insert(tk.END, f'  {folder["name"]}')
             self._folder_ids.append(folder['id'])
         self._folder_lb.selection_set(0)
+        self._refresh_folder_combo()
         self._load_snippets(None)
 
     def _load_snippets(self, folder_id):
@@ -225,12 +285,13 @@ class SnippetEditor(tk.Toplevel):
         snip_id = self._snip_ids[sel[0]]
         self._editing_snip = snip_id
         row = self.storage._conn.execute(
-            'SELECT title, content FROM snippets WHERE id=?', (snip_id,)
+            'SELECT title, content, folder_id FROM snippets WHERE id=?', (snip_id,)
         ).fetchone()
         if row:
             self._title_var.set(row['title'])
             self._content_txt.delete('1.0', tk.END)
             self._content_txt.insert('1.0', row['content'])
+            self._set_combo_folder(row['folder_id'])
             self._set_edit_mode(row['title'])
 
     # ── Actions ───────────────────────────────────────────────────────────
@@ -246,7 +307,8 @@ class SnippetEditor(tk.Toplevel):
 
         if title and content:
             # If filled, save then clear
-            folder_id = self._current_folder
+            idx = self._folder_combo.current()
+            folder_id = self._combo_folder_ids[idx] if 0 <= idx < len(self._combo_folder_ids) else None
             if self._editing_snip is not None:
                 self.storage.update_snippet(self._editing_snip, title, content, folder_id)
                 saved_msg = f'"{title}" updated'
@@ -268,6 +330,25 @@ class SnippetEditor(tk.Toplevel):
             self.storage.add_folder(name.strip())
             self._refresh()
 
+    def _rename_folder(self):
+        sel = self._folder_lb.curselection()
+        if not sel or sel[0] == 0:
+            messagebox.showinfo('Info', 'Please select a folder to rename.', parent=self)
+            return
+        folder_id = self._folder_ids[sel[0]]
+        current_name = self._folder_lb.get(sel[0]).strip()
+        new_name = simpledialog.askstring(
+            'Rename Folder', 'Enter new folder name:',
+            initialvalue=current_name, parent=self,
+        )
+        if new_name and new_name.strip() and new_name.strip() != current_name:
+            self.storage.update_folder(folder_id, new_name.strip())
+            self._refresh()
+            # Re-select the renamed folder
+            if folder_id in self._folder_ids:
+                idx = self._folder_ids.index(folder_id)
+                self._folder_lb.selection_set(idx)
+
     def _del_folder(self):
         sel = self._folder_lb.curselection()
         if not sel or sel[0] == 0:
@@ -288,6 +369,89 @@ class SnippetEditor(tk.Toplevel):
             self._load_snippets(self._current_folder)
             self._set_new_mode()
 
+    # ── Import / Export ───────────────────────────────────────────────────
+
+    def _export_snippets(self):
+        """Export all snippets to XML plist file (Clipy macOS compatible)."""
+        try:
+            file_path = filedialog.asksaveasfilename(
+                parent=self,
+                title='Export Snippets',
+                defaultextension='.xml',
+                filetypes=[
+                    ('XML Plist Files', '*.xml'),
+                    ('Plist Files', '*.plist'),
+                    ('All Files', '*.*')
+                ],
+                initialfile='clipy_snippets.xml'
+            )
+            
+            if not file_path:
+                return
+            
+            xml_content = self.storage.export_snippets_xml()
+            
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(xml_content)
+            
+            messagebox.showinfo(
+                'Export Successful',
+                f'Snippets exported successfully to:\n{file_path}',
+                parent=self
+            )
+        except Exception as e:
+            messagebox.showerror(
+                'Export Failed',
+                f'Failed to export snippets:\n{str(e)}',
+                parent=self
+            )
+
+    def _import_snippets(self):
+        """Import snippets from XML plist file (Clipy macOS compatible)."""
+        try:
+            file_path = filedialog.askopenfilename(
+                parent=self,
+                title='Import Snippets',
+                filetypes=[
+                    ('XML Plist Files', '*.xml'),
+                    ('Plist Files', '*.plist'),
+                    ('All Files', '*.*')
+                ]
+            )
+            
+            if not file_path:
+                return
+            
+            # Ask if user wants to merge or replace
+            merge = messagebox.askyesno(
+                'Import Mode',
+                'Do you want to merge with existing snippets?\n\n'
+                'Yes: Keep existing snippets and add imported ones\n'
+                'No: Replace all existing snippets with imported ones',
+                parent=self
+            )
+            
+            with open(file_path, 'r', encoding='utf-8') as f:
+                xml_content = f.read()
+            
+            self.storage.import_snippets_xml(xml_content, merge=merge)
+            
+            # Refresh the UI
+            self._refresh()
+            self._set_new_mode()
+            
+            messagebox.showinfo(
+                'Import Successful',
+                f'Snippets imported successfully from:\n{file_path}',
+                parent=self
+            )
+        except Exception as e:
+            messagebox.showerror(
+                'Import Failed',
+                f'Failed to import snippets:\n{str(e)}',
+                parent=self
+            )
+
     def _save_snippet(self):
         title = self._title_var.get().strip()
         content = self._content_txt.get('1.0', tk.END).rstrip('\n')
@@ -301,7 +465,8 @@ class SnippetEditor(tk.Toplevel):
             self._content_txt.focus_set()
             return
 
-        folder_id = self._current_folder
+        idx = self._folder_combo.current()
+        folder_id = self._combo_folder_ids[idx] if 0 <= idx < len(self._combo_folder_ids) else None
 
         if self._editing_snip is not None:
             # Update existing
@@ -313,7 +478,7 @@ class SnippetEditor(tk.Toplevel):
             self._editing_snip = new_id
             msg = f'"{title}" added.'
 
-        self._load_snippets(folder_id)
+        self._load_snippets(self._current_folder)
 
         # Re-select the saved snippet in the listbox
         if self._editing_snip in self._snip_ids:

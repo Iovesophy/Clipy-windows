@@ -10,7 +10,7 @@ class SettingsDialog(tk.Toplevel):
         super().__init__(parent)
         self.storage = storage
         self.hotkey_manager = hotkey_manager
-        self.title('Clipy Settings')
+        self.title('Clipy for Windows — Settings')
         self.resizable(False, False)
         self.grab_set()
         self.attributes('-topmost', True)
@@ -50,7 +50,7 @@ class SettingsDialog(tk.Toplevel):
         outer.pack(fill=tk.BOTH, expand=True, **pad)
 
         # Title
-        tk.Label(outer, text='Clipy Settings', bg=self.bg, fg=self.fg,
+        tk.Label(outer, text='Clipy for Windows — Settings', bg=self.bg, fg=self.fg,
                  font=('Segoe UI', 14, 'bold')).pack(anchor='w', pady=(0, 12))
 
         # ── Hotkeys ──────────────────────────────────────────────────────
@@ -93,6 +93,28 @@ class SettingsDialog(tk.Toplevel):
                            activebackground=self.bg, activeforeground=self.fg,
                            font=('Segoe UI', 10)).pack(side=tk.LEFT, padx=(0, 12))
 
+        # ── Start with Windows ───────────────────────────────────────────
+        self._startup_var = tk.BooleanVar(
+            value=self.storage.get_setting('start_with_windows', 'false') == 'true'
+        )
+        tk.Checkbutton(
+            outer, text='Start with Windows',
+            variable=self._startup_var,
+            bg=self.bg, fg=self.fg, selectcolor=self.bg,
+            activebackground=self.bg, activeforeground=self.fg,
+            font=('Segoe UI', 10),
+        ).pack(anchor='w', pady=(8, 0))
+
+        # ── Usage counts ─────────────────────────────────────────────────
+        uf = tk.Frame(outer, bg=self.bg)
+        uf.pack(anchor='w', pady=(10, 0), fill=tk.X)
+        tk.Label(uf, text='Snippet usage counts (used for folder ordering):',
+                 bg=self.bg, fg=self.fg, font=('Segoe UI', 10)).pack(anchor='w')
+        tk.Button(uf, text='Reset Usage Counts', command=self._reset_usage,
+                  bg=self.entry_bg, fg=self.fg, relief=tk.FLAT,
+                  padx=10, pady=4, font=('Segoe UI', 9),
+                  cursor='hand2').pack(anchor='w', pady=(4, 0))
+
         # ── Buttons ──────────────────────────────────────────────────────
         tk.Frame(outer, bg='#3a3a3a' if self.bg == '#1e1e1e' else '#d0d0d0',
                  height=1).pack(fill=tk.X, pady=(16, 8))
@@ -106,6 +128,11 @@ class SettingsDialog(tk.Toplevel):
                   bg=self.btn_bg, fg=self.btn_fg, relief=tk.FLAT,
                   padx=14, pady=6, font=('Segoe UI', 10, 'bold'),
                   cursor='hand2').pack(side=tk.LEFT)
+
+    def _reset_usage(self):
+        if messagebox.askyesno('Confirm', 'Reset all snippet usage counts to zero?\nFolder ordering will revert to alphabetical.', parent=self):
+            self.storage.reset_usage_counts()
+            messagebox.showinfo('Done', 'Usage counts reset.', parent=self)
 
     def _save(self):
         try:
@@ -128,6 +155,9 @@ class SettingsDialog(tk.Toplevel):
 
         self.storage.set_setting('max_history', str(n))
         self.storage.set_setting('theme', self._theme_var.get())
+        startup = self._startup_var.get()
+        self.storage.set_setting('start_with_windows', 'true' if startup else 'false')
+        self.storage.apply_startup(startup)
         self.hotkey_manager.reload()
         messagebox.showinfo('Saved', 'Settings saved successfully.\nTheme changes will take effect on next popup display.', parent=self)
         self.destroy()

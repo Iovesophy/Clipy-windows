@@ -59,7 +59,7 @@ class TrayIcon:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem('Quit', self._quit),
         )
-        self._icon = pystray.Icon('Clipy', img, 'Clipy - Clipboard Manager', menu=menu)
+        self._icon = pystray.Icon('Clipy', img, 'Clipy for Windows', menu=menu)
         self._icon.run()
 
     def stop(self):
