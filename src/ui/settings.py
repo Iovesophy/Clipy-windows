@@ -10,7 +10,7 @@ class SettingsDialog(tk.Toplevel):
         super().__init__(parent)
         self.storage = storage
         self.hotkey_manager = hotkey_manager
-        self.title('Clipy Settings')
+        self.title('Clipy for Windows — Settings')
         self.resizable(False, False)
         self.grab_set()
         self.attributes('-topmost', True)
@@ -50,7 +50,7 @@ class SettingsDialog(tk.Toplevel):
         outer.pack(fill=tk.BOTH, expand=True, **pad)
 
         # Title
-        tk.Label(outer, text='Clipy Settings', bg=self.bg, fg=self.fg,
+        tk.Label(outer, text='Clipy for Windows — Settings', bg=self.bg, fg=self.fg,
                  font=('Segoe UI', 14, 'bold')).pack(anchor='w', pady=(0, 12))
 
         # ── Hotkeys ──────────────────────────────────────────────────────

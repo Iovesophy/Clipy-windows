@@ -10,7 +10,7 @@ class SnippetEditor(tk.Toplevel):
     def __init__(self, parent, storage):
         super().__init__(parent)
         self.storage = storage
-        self.title('Clipy — Snippet Manager')
+        self.title('Clipy for Windows — Snippet Manager')
         self.geometry('760x620')
         self.minsize(640, 520)
         self.grab_set()
