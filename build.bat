@@ -7,7 +7,7 @@ pip install -r requirements.txt
 pip install pyinstaller
 
 :: Build single-file executable
-pyinstaller ^
+python -m PyInstaller ^
     --noconsole ^
     --onefile ^
     --name ClipyForWindows ^
