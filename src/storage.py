@@ -78,6 +78,26 @@ class Storage:
         self._conn.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, str(value)))
         self._conn.commit()
 
+    # ── Windows startup ───────────────────────────────────────────────────
+
+    def apply_startup(self, enabled: bool):
+        """Add or remove Clipy from HKCU Run registry key."""
+        import winreg, sys
+        key_path = r'Software\Microsoft\Windows\CurrentVersion\Run'
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
+            if enabled:
+                exe = sys.executable
+                winreg.SetValueEx(key, 'Clipy', 0, winreg.REG_SZ, f'"{exe}"')
+            else:
+                try:
+                    winreg.DeleteValue(key, 'Clipy')
+                except FileNotFoundError:
+                    pass
+            winreg.CloseKey(key)
+        except Exception as e:
+            print(f'[Clipy] startup registry error: {e}')
+
     # ── Clipboard history ─────────────────────────────────────────────────
 
     def add_clip(self, content: str):
@@ -129,6 +149,17 @@ class Storage:
         return self._conn.execute(
             'SELECT * FROM folders WHERE parent_id=? ORDER BY sort_order, name', (parent_id,)
         ).fetchall()
+
+    def get_folders_by_usage(self):
+        """Return root folders sorted by total snippet usage (descending), then name."""
+        return self._conn.execute('''
+            SELECT f.*, COALESCE(SUM(s.times_used), 0) AS total_used
+            FROM folders f
+            LEFT JOIN snippets s ON s.folder_id = f.id
+            WHERE f.parent_id IS NULL
+            GROUP BY f.id
+            ORDER BY total_used DESC, f.name
+        ''').fetchall()
 
     def add_folder(self, name: str, parent_id=None) -> int:
         cur = self._conn.execute('INSERT INTO folders (name, parent_id) VALUES (?, ?)', (name, parent_id))

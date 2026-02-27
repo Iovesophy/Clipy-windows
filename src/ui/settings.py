@@ -93,6 +93,18 @@ class SettingsDialog(tk.Toplevel):
                            activebackground=self.bg, activeforeground=self.fg,
                            font=('Segoe UI', 10)).pack(side=tk.LEFT, padx=(0, 12))
 
+        # ── Start with Windows ───────────────────────────────────────────
+        self._startup_var = tk.BooleanVar(
+            value=self.storage.get_setting('start_with_windows', 'false') == 'true'
+        )
+        tk.Checkbutton(
+            outer, text='Start with Windows',
+            variable=self._startup_var,
+            bg=self.bg, fg=self.fg, selectcolor=self.bg,
+            activebackground=self.bg, activeforeground=self.fg,
+            font=('Segoe UI', 10),
+        ).pack(anchor='w', pady=(8, 0))
+
         # ── Buttons ──────────────────────────────────────────────────────
         tk.Frame(outer, bg='#3a3a3a' if self.bg == '#1e1e1e' else '#d0d0d0',
                  height=1).pack(fill=tk.X, pady=(16, 8))
@@ -128,6 +140,9 @@ class SettingsDialog(tk.Toplevel):
 
         self.storage.set_setting('max_history', str(n))
         self.storage.set_setting('theme', self._theme_var.get())
+        startup = self._startup_var.get()
+        self.storage.set_setting('start_with_windows', 'true' if startup else 'false')
+        self.storage.apply_startup(startup)
         self.hotkey_manager.reload()
         messagebox.showinfo('Saved', 'Settings saved successfully.\nTheme changes will take effect on next popup display.', parent=self)
         self.destroy()

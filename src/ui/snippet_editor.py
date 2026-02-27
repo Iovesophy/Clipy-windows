@@ -3,7 +3,7 @@ Snippet manager dialog.
 Lets users create/edit/delete snippets and folders.
 """
 import tkinter as tk
-from tkinter import messagebox, simpledialog, filedialog
+from tkinter import ttk, messagebox, simpledialog, filedialog
 
 
 class SnippetEditor(tk.Toplevel):
@@ -31,8 +31,8 @@ class SnippetEditor(tk.Toplevel):
                 bg='#f5f5f5', fg='#1a1a1a',
                 panel='#ffffff', item_bg='#efefef',
                 select='#0078d4', select_fg='#ffffff',
-                border='#d0d0d0', btn='#e0e0e0',
-                text_bg='#ffffff', muted='#888888',
+                border='#c8c8c8', btn='#d8d8d8',
+                text_bg='#ffffff', muted='#555555',
                 new_badge='#0078d4', edit_badge='#107c10',
             )
 
@@ -41,6 +41,7 @@ class SnippetEditor(tk.Toplevel):
         self._editing_snip: int | None = None
         self._folder_ids: list = []
         self._snip_ids: list = []
+        self._combo_folder_ids: list = []
         self._build()
         self._refresh()
         self._set_new_mode()
@@ -161,6 +162,30 @@ class SnippetEditor(tk.Toplevel):
         )
         self._mode_label.pack(side=tk.LEFT, padx=(6, 0))
 
+        # Folder selector
+        style = ttk.Style(self)
+        style.theme_use('default')
+        style.configure('Folder.TCombobox',
+            fieldbackground=C['text_bg'], background=C['btn'],
+            foreground=C['fg'], selectbackground=C['text_bg'],
+            selectforeground=C['fg'], arrowcolor=C['fg'],
+        )
+        style.map('Folder.TCombobox',
+            fieldbackground=[('readonly', C['text_bg'])],
+            selectbackground=[('readonly', C['text_bg'])],
+            selectforeground=[('readonly', C['fg'])],
+        )
+        folder_row = tk.Frame(bot_pane, bg=C['bg'])
+        folder_row.pack(fill=tk.X, padx=2, pady=(0, 5))
+        tk.Label(folder_row, text='Folder:', bg=C['bg'], fg=C['fg'],
+                 font=('Segoe UI', 9), width=8, anchor='w').pack(side=tk.LEFT)
+        self._folder_var = tk.StringVar()
+        self._folder_combo = ttk.Combobox(
+            folder_row, textvariable=self._folder_var,
+            state='readonly', font=('Segoe UI', 10), style='Folder.TCombobox',
+        )
+        self._folder_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
         # Title
         tk.Label(bot_pane, text='Title:', bg=C['bg'], fg=C['fg'],
                  font=('Segoe UI', 9), anchor='w').pack(anchor='w', padx=2)
@@ -197,6 +222,7 @@ class SnippetEditor(tk.Toplevel):
         self._title_var.set('')
         self._content_txt.delete('1.0', tk.END)
         self._snip_lb.selection_clear(0, tk.END)
+        self._set_combo_folder(self._current_folder)
         self._title_entry.focus_set()
 
     def _set_edit_mode(self, title: str):
@@ -209,6 +235,18 @@ class SnippetEditor(tk.Toplevel):
 
     # ── Data ──────────────────────────────────────────────────────────────
 
+    def _refresh_folder_combo(self):
+        folders = self.storage.get_folders()
+        self._combo_folder_ids = [None] + [f['id'] for f in folders]
+        self._folder_combo['values'] = ['(No folder)'] + [f['name'] for f in folders]
+
+    def _set_combo_folder(self, folder_id):
+        try:
+            idx = self._combo_folder_ids.index(folder_id)
+        except ValueError:
+            idx = 0
+        self._folder_combo.current(idx)
+
     def _refresh(self):
         self._folder_lb.delete(0, tk.END)
         self._folder_ids = [None]
@@ -217,6 +255,7 @@ class SnippetEditor(tk.Toplevel):
             self._folder_lb.insert(tk.END, f'  {folder["name"]}')
             self._folder_ids.append(folder['id'])
         self._folder_lb.selection_set(0)
+        self._refresh_folder_combo()
         self._load_snippets(None)
 
     def _load_snippets(self, folder_id):
@@ -246,12 +285,13 @@ class SnippetEditor(tk.Toplevel):
         snip_id = self._snip_ids[sel[0]]
         self._editing_snip = snip_id
         row = self.storage._conn.execute(
-            'SELECT title, content FROM snippets WHERE id=?', (snip_id,)
+            'SELECT title, content, folder_id FROM snippets WHERE id=?', (snip_id,)
         ).fetchone()
         if row:
             self._title_var.set(row['title'])
             self._content_txt.delete('1.0', tk.END)
             self._content_txt.insert('1.0', row['content'])
+            self._set_combo_folder(row['folder_id'])
             self._set_edit_mode(row['title'])
 
     # ── Actions ───────────────────────────────────────────────────────────
@@ -267,7 +307,8 @@ class SnippetEditor(tk.Toplevel):
 
         if title and content:
             # If filled, save then clear
-            folder_id = self._current_folder
+            idx = self._folder_combo.current()
+            folder_id = self._combo_folder_ids[idx] if 0 <= idx < len(self._combo_folder_ids) else None
             if self._editing_snip is not None:
                 self.storage.update_snippet(self._editing_snip, title, content, folder_id)
                 saved_msg = f'"{title}" updated'
@@ -424,7 +465,8 @@ class SnippetEditor(tk.Toplevel):
             self._content_txt.focus_set()
             return
 
-        folder_id = self._current_folder
+        idx = self._folder_combo.current()
+        folder_id = self._combo_folder_ids[idx] if 0 <= idx < len(self._combo_folder_ids) else None
 
         if self._editing_snip is not None:
             # Update existing
@@ -436,7 +478,7 @@ class SnippetEditor(tk.Toplevel):
             self._editing_snip = new_id
             msg = f'"{title}" added.'
 
-        self._load_snippets(folder_id)
+        self._load_snippets(self._current_folder)
 
         # Re-select the saved snippet in the listbox
         if self._editing_snip in self._snip_ids:
