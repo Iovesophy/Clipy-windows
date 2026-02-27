@@ -105,6 +105,16 @@ class SettingsDialog(tk.Toplevel):
             font=('Segoe UI', 10),
         ).pack(anchor='w', pady=(8, 0))
 
+        # ── Usage counts ─────────────────────────────────────────────────
+        uf = tk.Frame(outer, bg=self.bg)
+        uf.pack(anchor='w', pady=(10, 0), fill=tk.X)
+        tk.Label(uf, text='Snippet usage counts (used for folder ordering):',
+                 bg=self.bg, fg=self.fg, font=('Segoe UI', 10)).pack(anchor='w')
+        tk.Button(uf, text='Reset Usage Counts', command=self._reset_usage,
+                  bg=self.entry_bg, fg=self.fg, relief=tk.FLAT,
+                  padx=10, pady=4, font=('Segoe UI', 9),
+                  cursor='hand2').pack(anchor='w', pady=(4, 0))
+
         # ── Buttons ──────────────────────────────────────────────────────
         tk.Frame(outer, bg='#3a3a3a' if self.bg == '#1e1e1e' else '#d0d0d0',
                  height=1).pack(fill=tk.X, pady=(16, 8))
@@ -118,6 +128,11 @@ class SettingsDialog(tk.Toplevel):
                   bg=self.btn_bg, fg=self.btn_fg, relief=tk.FLAT,
                   padx=14, pady=6, font=('Segoe UI', 10, 'bold'),
                   cursor='hand2').pack(side=tk.LEFT)
+
+    def _reset_usage(self):
+        if messagebox.askyesno('Confirm', 'Reset all snippet usage counts to zero?\nFolder ordering will revert to alphabetical.', parent=self):
+            self.storage.reset_usage_counts()
+            messagebox.showinfo('Done', 'Usage counts reset.', parent=self)
 
     def _save(self):
         try:

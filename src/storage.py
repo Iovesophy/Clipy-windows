@@ -220,6 +220,10 @@ class Storage:
         )
         self._conn.commit()
 
+    def reset_usage_counts(self):
+        self._conn.execute('UPDATE snippets SET times_used=0')
+        self._conn.commit()
+
     def close(self):
         self._conn.close()
 

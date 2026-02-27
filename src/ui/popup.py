@@ -12,7 +12,7 @@ Layout (monochrome flat design):
   ├─────────────────────────────┤
   │ SNIPPETS                    │
   │  root_snippet               │
-  │  Folder A               ▶   │ ← hover → submenu flies out to the right
+  │  Folder A                 > │ ← hover → submenu flies out to the right
   └─────────────────────────────┘
       ↓ hover on folder
   ┌─────────────────────────────┐
@@ -315,7 +315,7 @@ class PopupMenu:
         self._entries.append(entry)
         self._row_frames.append((f, lbl))
 
-    # ── Folder row (with ▶ and submenu on hover) ──────────────────────────
+    # ── Folder row (with > and submenu on hover) ──────────────────────────
 
     def _add_folder_row(self, folder_id: int, name: str):
         C   = self._C
@@ -325,7 +325,7 @@ class PopupMenu:
         lbl = tk.Label(f, text=f'  {name}', bg=C['bg'], fg=C['folder_fg'],
                        font=('Segoe UI', 10), anchor='w')
         lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        arrow = tk.Label(f, text='▶', bg=C['bg'], fg=C['folder_fg'],
+        arrow = tk.Label(f, text='>', bg=C['bg'], fg=C['folder_fg'],
                          font=('Segoe UI', 8))
         arrow.pack(side=tk.RIGHT)
 
