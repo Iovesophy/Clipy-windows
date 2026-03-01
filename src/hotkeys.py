@@ -6,15 +6,17 @@ Three independent hotkeys:
   hotkey_main     — show history + snippets  (default: Ctrl+Shift+V)
   hotkey_history  — show history only        (default: Ctrl+Shift+H)
   hotkey_snippets — show snippets only       (default: Ctrl+Shift+S)
+  hotkey_editor   — open snippet editor      (default: Ctrl+Shift+E)
 """
 
 
 class HotkeyManager:
-    def __init__(self, storage, show_all_cb, show_history_cb, show_snippets_cb):
+    def __init__(self, storage, show_all_cb, show_history_cb, show_snippets_cb, open_editor_cb=None):
         self.storage = storage
         self._cb_all      = show_all_cb
         self._cb_history  = show_history_cb
         self._cb_snippets = show_snippets_cb
+        self._cb_editor   = open_editor_cb
         self._ids: list = []
         self._running = False
 
@@ -40,6 +42,7 @@ class HotkeyManager:
             ('hotkey_main',     'ctrl+shift+v', self._cb_all),
             ('hotkey_history',  'ctrl+shift+h', self._cb_history),
             ('hotkey_snippets', 'ctrl+shift+s', self._cb_snippets),
+            ('hotkey_editor',   'ctrl+shift+e', self._cb_editor),
         ]
         for key, default, cb in pairs:
             hk = self.storage.get_setting(key, default).strip()
@@ -67,5 +70,6 @@ class HotkeyManager:
             'hotkey_main':     'ctrl+shift+v',
             'hotkey_history':  'ctrl+shift+h',
             'hotkey_snippets': 'ctrl+shift+s',
+            'hotkey_editor':   'ctrl+shift+e',
         }
         return self.storage.get_setting(key, defaults.get(key, ''))

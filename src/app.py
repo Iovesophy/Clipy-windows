@@ -33,6 +33,7 @@ class ClipyApp:
             show_all_cb=self.show_popup,
             show_history_cb=self.show_popup_history,
             show_snippets_cb=self.show_popup_snippets,
+            open_editor_cb=self.open_snippet_editor,
         )
         self.tray = TrayIcon(self)
 

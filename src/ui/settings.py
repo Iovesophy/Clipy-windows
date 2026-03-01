@@ -61,6 +61,7 @@ class SettingsDialog(tk.Toplevel):
             ('History + Snippets',  'hotkey_main',     'ctrl+shift+v', '#0078d4'),
             ('History Only',        'hotkey_history',  'ctrl+shift+h', '#107c10'),
             ('Snippets Only',       'hotkey_snippets', 'ctrl+shift+s', '#8764b8'),
+            ('Snippet Editor',      'hotkey_editor',   'ctrl+shift+e', '#c8512b'),
         ]):
             cell = tk.Frame(hk_frame, bg=self.bg)
             cell.grid(row=0, column=col, padx=(0, 12), sticky='w')
@@ -148,7 +149,7 @@ class SettingsDialog(tk.Toplevel):
         hk_snippets = getattr(self, '_hk_hotkey_snippets', None)
 
         # Save all three hotkeys (empty string = disabled)
-        for key in ('hotkey_main', 'hotkey_history', 'hotkey_snippets'):
+        for key in ('hotkey_main', 'hotkey_history', 'hotkey_snippets', 'hotkey_editor'):
             var = getattr(self, f'_hk_{key}', None)
             if var is not None:
                 self.storage.set_setting(key, var.get().strip().lower())
