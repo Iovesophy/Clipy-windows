@@ -186,7 +186,7 @@ class Storage:
             ).fetchall()
         if folder_id is not None:
             return self._conn.execute(
-                'SELECT * FROM snippets WHERE folder_id=? ORDER BY title', (folder_id,)
+                'SELECT * FROM snippets WHERE folder_id=? ORDER BY times_used DESC, title', (folder_id,)
             ).fetchall()
         return self._conn.execute(
             'SELECT * FROM snippets WHERE folder_id IS NULL ORDER BY title'
